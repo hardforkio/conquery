@@ -104,7 +104,7 @@
 							<gitDescribe>
 								<skip>false</skip>
 								<!-- do not only use annotated tags -->
-								<tags>true</tags>
+								<tags>false</tags>
 							</gitDescribe>
 						</configuration>
 					</plugin>
