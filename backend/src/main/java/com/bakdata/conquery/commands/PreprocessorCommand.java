@@ -1,7 +1,5 @@
 package com.bakdata.conquery.commands;
 
-import javax.validation.Validator;
-
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -11,6 +9,8 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Predicate;
+
+import javax.validation.Validator;
 
 import com.bakdata.conquery.ConqueryConstants;
 import com.bakdata.conquery.models.config.ConqueryConfig;
@@ -85,6 +85,9 @@ public class PreprocessorCommand extends ConqueryCommand {
 		else {
 			log.info("Preprocessing from config.json");
 			jobs = findPreprocessingJobs(config, environment.getValidator(), config.getPreprocessor().getDirectories());
+			if (jobs == null || jobs.isEmpty()) {
+				throw new IllegalStateException("No files for preprocessing are given.");
+			}
 		}
 
 
