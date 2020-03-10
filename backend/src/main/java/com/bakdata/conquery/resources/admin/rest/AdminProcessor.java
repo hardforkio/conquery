@@ -186,6 +186,13 @@ public class AdminProcessor {
 			TableId tableName = new TableId(dataset.getId(), header.getTable());
 			Table table = dataset.getTables().getOrFail(tableName);
 
+			final ImportId importId = new ImportId(tableName, header.getName());
+
+			if(getNamespaces().get(dataset.getId()).getStorage().getImport(importId) != null){
+				throw new IllegalArgumentException(String.format("Import[%s] is already loaded.",importId));
+			}
+
+
 			log.info("Importing {}", selectedFile.getAbsolutePath());
 			jobManager.addSlowJob(new ImportJob(namespaces.get(dataset.getId()), table.getId(), selectedFile));
 		}
