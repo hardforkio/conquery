@@ -1,6 +1,8 @@
 package com.bakdata.conquery.models.auth.basic;
 
+import java.security.SecureRandom;
 import java.util.Date;
+import java.util.Random;
 
 import javax.annotation.Nullable;
 import javax.ws.rs.container.ContainerRequestContext;
@@ -27,7 +29,7 @@ public class TokenHandler {
 	 * Creates a signed JWT token for the authentication with the
 	 * {@link LocalAuthenticationRealm}.
 	 */
-	public String createToken(String username, int duration, String issuer, Algorithm algorithm) {
+	public static String createToken(String username, int duration, String issuer, Algorithm algorithm) {
 		Date issueDate = new Date();
 		Date expDate = DateUtils.addHours(issueDate, duration);
 		String token = JWT.create().withIssuer(issuer).withSubject(username).withIssuedAt(issueDate).withExpiresAt(expDate).sign(algorithm);
@@ -132,5 +134,16 @@ public class TokenHandler {
 		public Object getCredentials() {
 			return token;
 		}
+	}
+	
+	/**
+	 * Generate a random default token.
+	 * @return The token as a {@link String}
+	 */
+	public static String generateTokenSecret() {
+		Random rand = new SecureRandom();
+		byte[] buffer = new byte[32];
+		rand.nextBytes(buffer);
+		return buffer.toString();
 	}
 }

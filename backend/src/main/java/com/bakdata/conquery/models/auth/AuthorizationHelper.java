@@ -167,12 +167,12 @@ public class AuthorizationHelper {
 	 * the permission of the roles it inherits.
 	 * @return Owned and inherited permissions.
 	 */
-	public static Set<Permission> getEffectiveUserPermissions(UserId userId, MasterMetaStorage storage) {
+	public static Set<? extends ConqueryPermission> getEffectiveUserPermissions(UserId userId, MasterMetaStorage storage) {
 		User user = Objects.requireNonNull(
 			storage.getUser(userId),
 			() -> String.format("User with id %s was not found", userId));
-		Set<Permission> userPermissions = user.getPermissions();
-		Set<Permission> tmpView = userPermissions;
+		Set<? extends ConqueryPermission> userPermissions = user.getPermissions();
+		Set<? extends ConqueryPermission> tmpView = userPermissions;
 		for (Role role : user.getRoles()) {
 			// In order to avoid copying, we build a 'tree' of Sets as a SetView, 
 			tmpView = Sets.union(tmpView, role.getPermissions());
@@ -195,15 +195,15 @@ public class AuthorizationHelper {
 	 * @param storage
 	 * @return
 	 */
-	public static Set<Permission> getEffectiveGroupPermissions(GroupId groupId, MasterMetaStorage storage) {
+	public static Set<? extends ConqueryPermission> getEffectiveGroupPermissions(GroupId groupId, MasterMetaStorage storage) {
 		Group group = Objects.requireNonNull(
 			storage.getGroup(groupId),
 			() -> String.format("User with id %s was not found", groupId));
 
-		Set<Permission> groupPermissions = group.getPermissions();
-		Set<Permission> tmpView = groupPermissions;
+		Set<? extends ConqueryPermission> groupPermissions = group.getPermissions();
+		Set<? extends ConqueryPermission> tmpView = groupPermissions;
 		for (Role role : group.getRoles()) {
-			Set<Permission> currentView = Sets.union(tmpView, role.getPermissions());
+			Set<? extends ConqueryPermission> currentView = Sets.union(tmpView, role.getPermissions());
 			tmpView = currentView;
 		}
 		
@@ -217,7 +217,7 @@ public class AuthorizationHelper {
 	 * @return Owned and inherited permissions.
 	 */
 	public static Multimap<String, ConqueryPermission> getEffectiveUserPermissions(UserId userId, List<String> domainSpecifier, MasterMetaStorage storage) {
-		Set<Permission> permissions = getEffectiveUserPermissions(userId, storage);
+		Set<? extends ConqueryPermission> permissions = getEffectiveUserPermissions(userId, storage);
 		Multimap<String, ConqueryPermission> mappedPerms = ArrayListMultimap.create();
 		for(Permission perm : permissions) {
 			ConqueryPermission cPerm = (ConqueryPermission) perm;
@@ -308,5 +308,29 @@ public class AuthorizationHelper {
 			.map(Permission.class::cast)
 			.collect(Collectors.toList());
 		user.checkPermissions(perms);
+	}
+	
+	public static User copyUser(@NonNull UserId userIdToCopy, @NonNull  MasterMetaStorage storage, String copyName, String copyLabel) {
+		User userToCopy = Objects.requireNonNull(storage.getUser(userIdToCopy), "Unable to find user that needs to be copied");
+		User newUser = new User(copyName, copyLabel);
+		
+		storage.addUser(newUser);
+		
+		// Add current groups
+		for(Group group : storage.getAllGroups()) {
+			if(group.containsMember(newUser)) {
+				group.addMember(storage, newUser);
+			}
+		}
+		
+		// Add current roles
+		for(Role role : userToCopy.getRoles()) {
+			newUser.addRole(storage, role);
+		}
+		
+		// Add current permissions
+		newUser.addPermissions(storage, userToCopy.getPermissions());
+		
+		return newUser;
 	}
 }

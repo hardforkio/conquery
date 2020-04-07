@@ -32,7 +32,7 @@ public abstract class PermissionOwner<T extends PermissionOwnerId<? extends Perm
 	 *            The permission to add.
 	 * @return Returns the added Permission
 	 */
-	public Set<ConqueryPermission> addPermissions(MasterMetaStorage storage, Set<ConqueryPermission> permissions) {
+	public Set<ConqueryPermission> addPermissions(MasterMetaStorage storage, Set<? extends ConqueryPermission> permissions) {
 		HashSet<ConqueryPermission> addedPermissions = new HashSet<>();
 		for (ConqueryPermission permission : permissions) {
 			addedPermissions.add(addPermission(storage, permission));
@@ -60,7 +60,7 @@ public abstract class PermissionOwner<T extends PermissionOwnerId<? extends Perm
 	 * 
 	 * @return A set of the permissions hold by the owner.
 	 */
-	public Set<Permission> getPermissions(){
+	public Set<? extends ConqueryPermission> getPermissions(){
 		// HashSet uses internally an iterator for copying, so we need to synchronize this
 		return Collections.unmodifiableSet(permissions);
 	}
