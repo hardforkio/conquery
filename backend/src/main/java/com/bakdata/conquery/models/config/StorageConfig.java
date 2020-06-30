@@ -23,5 +23,5 @@ public class StorageConfig {
 	@NotNull
 	private Duration weakCacheDuration = Duration.hours(48);
 	
-	private Optional<File> unreadbleDataDumpDirectory = null;
+	private Optional<File> unreadbleDataDumpDirectory = Optional.empty();
 }
