@@ -23,5 +23,8 @@ public class StorageConfig {
 	@NotNull
 	private Duration weakCacheDuration = Duration.hours(48);
 	
+	/**
+	 * When set, all values that could not be deserialized from the persistent store, are dump into individual files.
+	 */
 	private Optional<File> unreadbleDataDumpDirectory = Optional.empty();
 }
