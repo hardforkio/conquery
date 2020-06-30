@@ -1,6 +1,7 @@
 package com.bakdata.conquery.models.config;
 
 import java.io.File;
+import java.util.Optional;
 
 import javax.validation.Valid;
 import javax.validation.constraints.NotNull;
@@ -21,4 +22,6 @@ public class StorageConfig {
 	private boolean useWeakDictionaryCaching = true;
 	@NotNull
 	private Duration weakCacheDuration = Duration.hours(48);
+	
+	private Optional<File> unreadbleDataDumpDirectory = null;
 }
