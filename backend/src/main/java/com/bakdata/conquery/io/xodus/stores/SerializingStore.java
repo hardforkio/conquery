@@ -1,8 +1,15 @@
 package com.bakdata.conquery.io.xodus.stores;
 
+import java.io.File;
 import java.io.IOException;
+import java.nio.file.Path;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Objects;
+import java.util.Optional;
+import java.util.stream.Collectors;
 
 import javax.validation.Validator;
 
@@ -14,8 +21,10 @@ import com.bakdata.conquery.models.config.ConqueryConfig;
 import com.bakdata.conquery.models.exceptions.JSONException;
 import com.bakdata.conquery.models.exceptions.ValidatorHelper;
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectReader;
 import com.fasterxml.jackson.databind.ObjectWriter;
+import com.google.common.base.Throwables;
 import jetbrains.exodus.ArrayByteIterable;
 import jetbrains.exodus.ByteIterable;
 import lombok.extern.slf4j.Slf4j;
@@ -71,6 +80,17 @@ public class SerializingStore<KEY, VALUE> implements Store<KEY, VALUE> {
 	 */
 	private final IStoreInfo storeInfo;
 
+	private int totalProcessed = 0;
+	private int failedKeys = 0;
+	private int failedValues = 0;
+
+	/**
+	 * If set, all values that cannot be read are dumped as single files into this directory.
+	 */
+	private final File unreadableDumpDir;
+	
+	private final boolean removeUnreadablesFromUnderlyingStore;
+
 	@SuppressWarnings("unchecked")
 	public SerializingStore(XodusStore store, Validator validator, IStoreInfo storeInfo) {
 		this.storeInfo = storeInfo;
@@ -94,6 +114,22 @@ public class SerializingStore<KEY, VALUE> implements Store<KEY, VALUE> {
 		keyReader = Jackson.BINARY_MAPPER
 							.readerFor(storeInfo.getKeyType())
 							.withView(InternalOnly.class);
+		
+		removeUnreadablesFromUnderlyingStore = ConqueryConfig.getInstance().getStorage().isRemoveUnreadablesFromStore();
+		
+		// Prepare dump directory if there is one set in the config
+		Optional<File> dumpUnreadable = ConqueryConfig.getInstance().getStorage().getUnreadbleDataDumpDirectory();
+		if(dumpUnreadable.isPresent()) {
+			unreadableDumpDir = dumpUnreadable.get();
+			if(!unreadableDumpDir.exists()) {
+				unreadableDumpDir.mkdirs();
+			}
+			else if(!unreadableDumpDir.isDirectory()) {
+				throw new IllegalArgumentException(String.format("The provided path points to an existing file which is not a directory. Was: %s", unreadableDumpDir.getAbsolutePath()));
+			}
+		} else {
+			unreadableDumpDir = null;
+		}
 	}
 
 	@Override
@@ -115,22 +151,63 @@ public class SerializingStore<KEY, VALUE> implements Store<KEY, VALUE> {
 
 	@Override
 	public VALUE get(KEY key) {
-		return readValue(store.get(writeKey(key)));
+		ByteIterable binValue = store.get(writeKey(key));
+		try {
+			return readValue(binValue);			
+		} catch (Exception e) {
+			if(unreadableDumpDir != null) {
+				dumpToFile(binValue, key.toString());
+			}
+			if(removeUnreadablesFromUnderlyingStore) {
+				remove(key);
+			}
+			Throwables.throwIfUnchecked(e);
+			throw new RuntimeException(e);
+		}
 	}
 
 	@Override
 	public void forEach(StoreEntryConsumer<KEY, VALUE> consumer) {
+		totalProcessed = 0;
+		failedKeys = 0;
+		failedValues = 0;
+		ArrayList<ByteIterable> unreadables = new ArrayList<>();
 		store.forEach((k, v) -> {
+			totalProcessed++;
 			try {
 				try {
 					consumer.accept(readKey(k), readValue(v), v.getLength());
 				} catch (Exception e) {
-					log.warn("Could not parse value for key " + readKey(k), e);
+					if(unreadableDumpDir != null) {						
+						dumpToFile(v, Jackson.BINARY_MAPPER.readerFor(String.class).readValue(k.getBytesUnsafe()));
+					} else {
+						log.warn("Could not parse value for key " + readKey(k), e);						
+					}
+					if(removeUnreadablesFromUnderlyingStore) {
+						unreadables.add(k);
+					}
+					failedValues++;
 				}
 			} catch (Exception e) {
 				log.warn("Could not parse key " + k, e);
+				failedKeys++;
 			}
 		});
+		// Print some statistics
+		log.info(String.format("While processing store %s:\n\tEntries processed:\t%d\n\tKey read failure:\t%d (%.2f%%)\n\tValue read failure:\t%d (%.2f%%)",
+			this.storeInfo.getXodusName(),
+			totalProcessed, failedKeys,
+			(float) failedKeys/totalProcessed*100,
+			failedValues,
+			(float) failedValues/totalProcessed*100));
+		
+		if(removeUnreadablesFromUnderlyingStore) {
+			log.info("Removing the following unreadable elements from the store {}: {}", storeInfo.getXodusName(), unreadables.stream()
+				.map(ByteIterable::getBytesUnsafe)
+				.map(String::new)
+				.collect(Collectors.toList()));
+			unreadables.forEach(store::remove);			
+		}
 	}
 
 	@Override
@@ -148,6 +225,7 @@ public class SerializingStore<KEY, VALUE> implements Store<KEY, VALUE> {
 
 	@Override
 	public void remove(KEY key) {
+		log.trace("Removing value to key {} from store", key, storeInfo.getXodusName());
 		store.remove(writeKey(key));
 	}
 
@@ -206,6 +284,29 @@ public class SerializingStore<KEY, VALUE> implements Store<KEY, VALUE> {
 			return reader.readValue(obj.getBytesUnsafe(), 0, obj.getLength());
 		} catch (IOException e) {
 			throw new RuntimeException("Failed to read " + JacksonUtil.toJsonDebug(obj.getBytesUnsafe()), e);
+		}
+	}
+
+	private void dumpToFile(ByteIterable obj, String keyOfDump) {
+		// Create dump filehandle
+		File dumpfile = new File(Path.of(unreadableDumpDir.getAbsolutePath(), String.format("%s-%s-%s.json",
+				DateTimeFormatter.BASIC_ISO_DATE.format(LocalDateTime.now()),
+				this.storeInfo.getXodusName(),
+				keyOfDump
+				)
+			).toString());
+		if(dumpfile.exists()) {
+			log.warn("Abort dumping of file {} because it already exists.",dumpfile);
+			return;
+		}
+		// Write dump
+		try {
+			log.info("Dumping value of key {} to {} (because it cannot be deserialized anymore).", keyOfDump, dumpfile.getCanonicalPath());
+			JsonNode dump = Jackson.BINARY_MAPPER.readerFor(JsonNode.class).readValue(obj.getBytesUnsafe(), 0, obj.getLength());
+			Jackson.MAPPER.writer().writeValue(dumpfile, dump);
+		}
+		catch (IOException e) {
+			log.warn("Unable to dump unreadable value of key " + keyOfDump + " to file " + dumpfile +".", e);
 		}
 	}
 
