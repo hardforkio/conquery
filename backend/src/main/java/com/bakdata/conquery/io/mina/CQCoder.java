@@ -1,8 +1,10 @@
 package com.bakdata.conquery.io.mina;
 
+import java.io.InputStream;
+
 public interface CQCoder<OUT> {
 
-	public OUT decode(ChunkedMessage message) throws Exception;
+	public OUT decode(InputStream inputStream) throws Exception;
 
-	public Chunkable encode(OUT message) throws Exception;
+	public byte[] encode(OUT message) throws Exception;
 }
