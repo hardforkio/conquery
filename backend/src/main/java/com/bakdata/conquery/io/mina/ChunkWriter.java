@@ -45,7 +45,7 @@ public class ChunkWriter extends ProtocolEncoderAdapter {
 			
 			msgChunkLength = Math.min(remainingLength, bufferSize);			
 			buf = IoBuffer.allocate(msgChunkLength);
-			buf.put(ch, srcOffset, msgChunkLength);
+			buf.put(ch, srcOffset, msgChunkLength).flip();
 			out.write(buf);
 			
 		}
