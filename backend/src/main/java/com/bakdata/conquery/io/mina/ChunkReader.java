@@ -1,5 +1,8 @@
 package com.bakdata.conquery.io.mina;
 
+import java.util.ArrayList;
+import java.util.List;
+
 import lombok.Data;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -25,20 +28,32 @@ public class ChunkReader extends ProtocolDecoderAdapter {
 		if (state == null) {
 			// Start of message object
 			state = new SessionState();
-			state.setMsgTotalLength(in.getInt());
+			state.setMsgTotalLength(in.getLong());
 			state.setMsgBufInsertOffset(0);
-			state.setMessagebuf(new byte[state.getMsgTotalLength()]);
+			List<byte[]> buffers = new ArrayList<>();
+			long toAlloc = state.getMsgTotalLength();
+			while (toAlloc > Integer.MAX_VALUE) {
+				buffers.add(new byte[Integer.MAX_VALUE]);
+				toAlloc -= Integer.MAX_VALUE;
+			}
+			buffers.add(new byte[(int) toAlloc]);
+			state.setMessagebuffers(buffers);
 			session.setAttribute(STATE, state);
 		}
 		
-		int nCopyBytes = Math.min(in.remaining(),state.getMsgTotalLength() - state.getMsgBufInsertOffset());
+		long nCopyBytes = Math.min(in.remaining(),state.getMsgTotalLength() - state.getMsgBufInsertOffset());
 		int idx = state.getMsgBufInsertOffset();
-		int finalIdx = idx + nCopyBytes;
-		byte[] singleMsgBuf = state.getMessagebuf();
+		long finalIdx = idx + nCopyBytes;
+		List<byte[]> singleMsgBuf = state.getMessagebuffers();
 		
 		while(idx < finalIdx) {
-			singleMsgBuf[idx] = in.get();
+			int currentBufferIdx = state.getCurrentBuffer();
+			byte[] currentBuffer = singleMsgBuf.get(currentBufferIdx);
+			currentBuffer[idx - currentBufferIdx*Integer.MAX_VALUE] = in.get();
 			idx++;
+			if(idx % Integer.MAX_VALUE == 0) {
+				state.setCurrentBuffer(currentBufferIdx + 1);
+			}
 		}
 		
 		state.setMsgBufInsertOffset(idx);
@@ -51,7 +66,7 @@ public class ChunkReader extends ProtocolDecoderAdapter {
 		}
 
 		try {
-			out.write(coder.decode(state.getMessagebuf()));			
+			coder.decode(state.getMessagebuffers(), out);			
 		}
 		catch (Exception e) {
 			log.error("Could not decode cumulated message",e);
@@ -62,10 +77,11 @@ public class ChunkReader extends ProtocolDecoderAdapter {
 	
 	@Data
 	private static class SessionState {
-		private int msgTotalLength = 0;
+		private long msgTotalLength = 0;
 		private int msgBufInsertOffset = 0;
 		// We need this buffer because data send as CQPP might exceeds the cummulated IoBuffer 
-		private byte[] messagebuf;
+		private List<byte[]> messagebuffers;
+		private int currentBuffer = 0;
 	}
 	
 }

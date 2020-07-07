@@ -1,8 +1,13 @@
 package com.bakdata.conquery.io.mina;
 
+import java.util.List;
+
+import org.apache.mina.filter.codec.ProtocolDecoderOutput;
+import org.apache.mina.filter.codec.ProtocolEncoderOutput;
+
 public interface CQCoder<OUT> {
 
-	public OUT decode(byte[] bs) throws Exception;
+	public void decode(List<byte[]> list, ProtocolDecoderOutput out) throws Exception;
 
-	public byte[] encode(OUT message) throws Exception;
+	public void encode(OUT message, ProtocolEncoderOutput out) throws Exception;
 }
