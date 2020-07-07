@@ -1,7 +1,5 @@
 package com.bakdata.conquery.io.mina;
 
-import java.io.InputStream;
-
 import javax.validation.Validator;
 
 import com.bakdata.conquery.io.jackson.InternalOnly;
@@ -40,7 +38,7 @@ public class BinaryJacksonCoder implements CQCoder<NetworkMessage<?>> {
 	}
 
 	@Override
-	public NetworkMessage<?> decode(InputStream message) throws Exception {
+	public NetworkMessage<?> decode(byte[] message) throws Exception {
 		return reader.readValue(message);
 	}
 }

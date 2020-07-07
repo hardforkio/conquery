@@ -6,55 +6,66 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.mina.core.buffer.IoBuffer;
 import org.apache.mina.core.session.AttributeKey;
 import org.apache.mina.core.session.IoSession;
-import org.apache.mina.filter.codec.CumulativeProtocolDecoder;
+import org.apache.mina.filter.codec.ProtocolDecoderAdapter;
 import org.apache.mina.filter.codec.ProtocolDecoderOutput;
 
 @Slf4j @RequiredArgsConstructor
-public class ChunkReader extends CumulativeProtocolDecoder {
+public class ChunkReader extends ProtocolDecoderAdapter {
 	
 	private static final AttributeKey STATE = new AttributeKey(SessionState.class, "sessionState");
 	
 	private final CQCoder<?> coder;
 	
 	@Override
-	protected boolean doDecode(IoSession session, IoBuffer in, ProtocolDecoderOutput out) {
-		SessionState state = (SessionState) session.getAttribute(STATE, new SessionState());
-		int bufStart = in.position();
+	public void decode(IoSession session, IoBuffer in, ProtocolDecoderOutput out) {
+		SessionState state = (SessionState) session.getAttribute(STATE);
+//		int bufStart = in.position();
 		int bufEnd = in.limit();
-		if (!state.isInMessage()) {
+		
+		if (state == null) {
 			// Start of message object
-			state.setInMessage(true);
+			state = new SessionState();
 			state.setMsgTotalLength(in.getInt());
-			state.setMsgStartMarker(in.position());
+			state.setMsgBufInsertOffset(0);
+			state.setMessagebuf(new byte[state.getMsgTotalLength()]);
+			session.setAttribute(STATE, state);
 		}
 		
-		if (in.remaining() < state.getMsgTotalLength()) {
-			// We need more bytes for accummulation
-			in.position(bufStart);
-			in.limit(bufEnd);
-			return false;
+		int nCopyBytes = Math.min(in.remaining(),state.getMsgTotalLength() - state.getMsgBufInsertOffset());
+		int idx = state.getMsgBufInsertOffset();
+		int finalIdx = idx + nCopyBytes;
+		byte[] singleMsgBuf = state.getMessagebuf();
+		
+		while(idx < finalIdx) {
+			singleMsgBuf[idx] = in.get();
+			idx++;
 		}
 		
-		in.position(state.getMsgStartMarker());
-		in.limit(state.getMsgStartMarker() + state.msgTotalLength);
+		state.setMsgBufInsertOffset(idx);
 		
+		in.limit(bufEnd);
+		
+		if(state.getMsgBufInsertOffset() < state.getMsgTotalLength()) {
+			// Wait for more bytes
+			return;
+		}
+
 		try {
-			out.write(coder.decode(in.slice().asInputStream()));			
+			out.write(coder.decode(state.getMessagebuf()));			
 		}
 		catch (Exception e) {
 			log.error("Could not decode cumulated message",e);
-		} finally {
-			in.position(in.limit());
-			state.setInMessage(false);
 		}
-		return true;
+		
+		session.removeAttribute(STATE);		
 	}
 	
 	@Data
 	private static class SessionState {
-		private boolean inMessage = false;
 		private int msgTotalLength = 0;
-		private int msgStartMarker = 0;
+		private int msgBufInsertOffset = 0;
+		// We need this buffer because data send as CQPP might exceeds the cummulated IoBuffer 
+		private byte[] messagebuf;
 	}
 	
 }
