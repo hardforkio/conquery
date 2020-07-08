@@ -104,7 +104,7 @@ public class BinaryJacksonCoder implements CQCoder<NetworkMessage<?>> {
 				}
 				byte val = message.get(listIdx)[bufferIdx];
 				bufferIdx++;
-				if(bufferIdx >= Integer.MAX_VALUE) {
+				if(bufferIdx >= message.get(listIdx).length) {
 					bufferIdx = 0;
 					listIdx++;
 				}
