@@ -1,6 +1,7 @@
 package com.bakdata.conquery.util;
 
 import java.util.AbstractQueue;
+import java.util.ArrayDeque;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Iterator;
@@ -46,6 +47,9 @@ public class RoundRobinQueue<E> extends AbstractQueue<E> implements BlockingQueu
 	 * The index to start polling. This is remembered so we don't have a bias towards lower indices.
 	 */
 	private final ThreadLocal<Integer> cycleIndex = ThreadLocal.withInitial(() -> 0);
+	private final int popOver = 20;
+	private final ThreadLocal<Queue<E>> myQueue = ThreadLocal.withInitial(() -> new ArrayDeque<>(popOver));
+
 
 	public RoundRobinQueue(@Min(1) int capacity) {
 		super();
@@ -308,6 +312,12 @@ public class RoundRobinQueue<E> extends AbstractQueue<E> implements BlockingQueu
 	 */
 	@Override
 	public E poll() {
+		final Queue<E> myQueue = this.myQueue.get();
+
+		if(!myQueue.isEmpty()){
+			return myQueue.poll();
+		}
+
 		// The next queue we look poll
 		final int begin = cycleIndex.get();
 
@@ -320,12 +330,18 @@ public class RoundRobinQueue<E> extends AbstractQueue<E> implements BlockingQueu
 			}
 
 			// Poll once, if successful update the index of the last polled queue and return the polled element.
-			E out = curr.poll();
+			for (int iter = 0; iter < popOver; iter++) {
+				final E poll = curr.poll();
+				if(poll == null)
+					break;
 
-			if (out != null) {
+				myQueue.add(poll);
+			}
+
+			if (!myQueue.isEmpty()) {
 				log.trace("Thread[{}] found Work in Queue[{}].", Thread.currentThread().getName(), index);
 				cycleIndex.set(index + 1);
-				return out;
+				return myQueue.poll();
 			}
 		}
 
